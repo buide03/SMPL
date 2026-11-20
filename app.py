@@ -3,12 +3,15 @@
 from hashlib import sha256
 from math import ceil, floor
 
+import pandas as pd
 from PIL import Image, ImageDraw
 import streamlit as st
 
 from src.bundle_loader import Bundle, BundleError, SYNTHETIC_LABEL, load_bundle
 from src.mesh_geometry import create_mesh, export_mesh, mesh_statistics
-from src.mesh_viewer import mesh_figure
+from src.mesh_viewer import PLOTLY_CONFIG, mesh_figure
+from src.pose_utils import JOINTS
+from src.smpl_editor import smpl_editor
 from src.synthetic_fixture import fixture_bytes
 from src.validation import PersonArrays
 
@@ -18,16 +21,8 @@ MODES = (
     "3D Human Mesh",
     "Mesh Wireframe",
     "All Detected People",
+    "SMPL Explorer",
 )
-JOINTS = (
-    "Left hip", "Right hip", "Spine 1", "Left knee", "Right knee", "Spine 2",
-    "Left ankle", "Right ankle", "Spine 3", "Left foot", "Right foot", "Neck",
-    "Left collar", "Right collar", "Head", "Left shoulder", "Right shoulder",
-    "Left elbow", "Right elbow", "Left wrist", "Right wrist", "Left hand", "Right hand",
-)
-PLOTLY_CONFIG = {
-    "scrollZoom": True, "displayModeBar": True, "displaylogo": False,
-}
 
 
 @st.cache_data(max_entries=1, show_spinner=False)
@@ -41,6 +36,7 @@ def load_for_session(payload: bytes) -> tuple[str, Bundle]:
     if st.session_state.get("package_id") != package_id:
         st.session_state.pop("package_id", None)
         st.session_state.pop("bundle", None)
+        st.session_state.pop("smpl_editor_sessions", None)
         st.session_state["bundle"] = load_bundle(payload)
         st.session_state["package_id"] = package_id
     return package_id, st.session_state["bundle"]
@@ -109,15 +105,15 @@ def parameters_panel(person_id: str, arrays: PersonArrays, package_id: str, synt
         with shape:
             st.caption("Each β is a coefficient of the learned shape basis.")
             st.dataframe(
-                [{"Coefficient": f"β{i}", "Value": float(value)}
-                 for i, value in enumerate(arrays["betas"])],
+                pd.DataFrame({"Coefficient": [f"β{i}" for i in range(10)],
+                              "Value": arrays["betas"].astype(float, copy=False)}),
                 hide_index=True, height=290, width="stretch",
             )
         with pose:
             st.caption("Pelvis gives the global orientation. The 23 body rotations are parent-relative.")
-            joint = st.selectbox("Rotation matrix", ("Pelvis", *JOINTS), key="pose-joint")
-            rotation = (arrays["global_orient"][0] if joint == "Pelvis"
-                        else arrays["body_pose"][JOINTS.index(joint)])
+            joint = st.selectbox("Rotation matrix", JOINTS, key="pose-joint")
+            index = JOINTS.index(joint)
+            rotation = arrays["body_pose"][index - 1] if index else arrays["global_orient"][0]
             # Arrow requires native byte order. A float64 view or copy preserves every input value.
             st.dataframe(rotation.astype(float, copy=False), hide_index=True, width="stretch")
         with camera:
@@ -203,6 +199,9 @@ def main() -> None:
         st.text(f"Imported inference · {metadata['model_name']} · {metadata['checkpoint_identifier']}")
 
     mode = st.radio("Visualization", MODES, index=1, horizontal=True)
+    if mode == "SMPL Explorer":
+        smpl_editor(bundle, person_id, package_id)
+        return
     if mode == "Original RGB":
         source_panel(bundle, person_id, boxed=False)
     elif mode == "RGB + Reconstruction Overlay":

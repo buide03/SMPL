@@ -50,6 +50,16 @@ def test_subpixel_box_at_image_boundary():
     assert labeled.getpixel((639, 359)) == (120, 249, 215)
 
 
+def test_smpl_editor_keeps_synthetic_fixture_in_the_viewer():
+    app = AppTest.from_file(str(APP_PATH)).run()
+    app.radio[0].set_value("SMPL Explorer").run()
+    assert not app.exception
+    assert "Import an HMR2 reconstruction" in app.info[0].value
+    assert not app.slider
+    app.radio[0].set_value("3D Human Mesh").run()
+    assert not app.exception and len(app.get("plotly_chart")) == 1
+
+
 @pytest.mark.parametrize("dtype", [">f2", ">f4", ">f8"])
 def test_uploaded_big_endian_pose_is_displayed(dtype):
     fixture = fixture_bytes()

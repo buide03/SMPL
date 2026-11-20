@@ -1,0 +1,4 @@
+# Install the CPU build of PyTorch before installing this file.
+scipy>=1.11,<2
+smplx==0.1.28
+chumpy @ git+https://github.com/mattloper/chumpy.git@580566eafc9ac68b2614b64d6f7aaa84eebb70da

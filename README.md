@@ -31,6 +31,22 @@ For an exported prediction, choose **Reconstruction ZIP** and follow the [ZIP co
 
 The detector is TorchVision Faster R-CNN ResNet-50 FPN v2 with COCO weights. Crop preprocessing, HMR2 forward, camera conversion, and rendering use the official 4D-Humans code. Colab records the checkpoint and asset SHA-256 digests, the upstream revision, the detector weights, and installed inference versions in the ZIP manifest. [TorchVision detector](https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.detection.fasterrcnn_resnet50_fpn_v2.html) · [4D-Humans demo](https://github.com/shubham-goel/4D-Humans/blob/main/demo.py)
 
+## Edit SMPL parameters on Windows
+
+From the same PowerShell session used to launch Streamlit, install the optional CPU dependencies and point the app at your licensed neutral model. Adjust the example model path to match your computer. [PyTorch CPU installation](https://pytorch.org/get-started/locally/) · [Local SMPL model](models/README.md)
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+.\.venv\Scripts\python.exe -m pip install "setuptools>=68" wheel
+.\.venv\Scripts\python.exe -m pip install --no-build-isolation -r requirements-smpl.txt
+$env:SMPL_MODEL_PATH = 'D:\SMPLify-Neutral\basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+Import the real HMR2 ZIP, select a person, and choose **SMPL Explorer**. Edit β in **Shape β** or select a joint in **Pose θ**. Use **Show original HMR2 mesh** to compare with the original prediction in the posed viewport. The two views share scale and camera interactions. Adjustments stay in the browser session. **Reset to Prediction** restores the person's imported parameters, and **Reset to Neutral** sets β to zero and all joint rotations to identity.
+
+The editor displays the RMS and maximum vertex distance for the original prediction. Editing is enabled when the model identity and face order match and the maximum distance is at most **0.1 mm**. See [coordinate systems](docs/COORDINATE_SYSTEMS.md) for the comparison conventions.
+
 ## Geometry and tests
 
 Install the geometry requirements to enable Open3D. Run pytest with the same interpreter that launches Streamlit.
