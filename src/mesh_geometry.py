@@ -1,12 +1,18 @@
 """Optional Open3D geometry inspection and OBJ/PLY export."""
+
+from __future__ import annotations
+
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from open3d.geometry import TriangleMesh
 
-def create_mesh(vertices: np.ndarray, faces: np.ndarray) -> Any:
+
+def create_mesh(vertices: np.ndarray, faces: np.ndarray) -> TriangleMesh:
     """Build an Open3D TriangleMesh and compute vertex normals."""
     import open3d as o3d
 
@@ -17,7 +23,7 @@ def create_mesh(vertices: np.ndarray, faces: np.ndarray) -> Any:
     return mesh.compute_vertex_normals()
 
 
-def mesh_statistics(mesh: Any) -> dict:
+def mesh_statistics(mesh: TriangleMesh) -> dict[str, int | float | bool | list[float]]:
     """Summarize geometry and report individual topology checks."""
     bounds = mesh.get_axis_aligned_bounding_box()
     triangles = np.asarray(mesh.triangles)
@@ -39,7 +45,7 @@ def mesh_statistics(mesh: Any) -> dict:
     }
 
 
-def export_mesh(mesh: Any, extension: str) -> bytes:
+def export_mesh(mesh: TriangleMesh, extension: str) -> bytes:
     """Serialize to OBJ or PLY using a private temporary file."""
     import open3d as o3d
 

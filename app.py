@@ -1,5 +1,8 @@
-"""Windows CPU viewer for validated SMPL reconstruction packages."""
-import numpy as np
+"""Inspect packaged SMPL predictions in a local Streamlit workspace."""
+
+from hashlib import sha256
+from math import ceil, floor
+
 from PIL import Image, ImageDraw
 import streamlit as st
 
@@ -7,126 +10,219 @@ from src.bundle_loader import Bundle, BundleError, SYNTHETIC_LABEL, load_bundle
 from src.mesh_geometry import create_mesh, export_mesh, mesh_statistics
 from src.mesh_viewer import mesh_figure
 from src.synthetic_fixture import fixture_bytes
+from src.validation import PersonArrays
+
+MODES = (
+    "Original RGB",
+    "RGB + Reconstruction Overlay",
+    "3D Human Mesh",
+    "Mesh Wireframe",
+    "All Detected People",
+)
+JOINTS = (
+    "Left hip", "Right hip", "Spine 1", "Left knee", "Right knee", "Spine 2",
+    "Left ankle", "Right ankle", "Spine 3", "Left foot", "Right foot", "Neck",
+    "Left collar", "Right collar", "Head", "Left shoulder", "Right shoulder",
+    "Left elbow", "Right elbow", "Left wrist", "Right wrist", "Left hand", "Right hand",
+)
+PLOTLY_CONFIG = {
+    "scrollZoom": True, "displayModeBar": True, "displaylogo": False,
+}
 
 
-def geometry_panel(arrays: dict[str, np.ndarray], person_id: str) -> None:
+@st.cache_data(max_entries=1, show_spinner=False)
+def demo_package() -> bytes:
+    return fixture_bytes()
+
+
+def load_for_session(payload: bytes) -> tuple[str, Bundle]:
+    """Keep only the current validated package in this browser session."""
+    package_id = sha256(payload).hexdigest()
+    if st.session_state.get("package_id") != package_id:
+        st.session_state.pop("package_id", None)
+        st.session_state.pop("bundle", None)
+        st.session_state["bundle"] = load_bundle(payload)
+        st.session_state["package_id"] = package_id
+    return package_id, st.session_state["bundle"]
+
+
+def draw_detections(bundle: Bundle, selected: str | None) -> Image.Image:
+    """Label boxes in source pixel space and draw the active detection last."""
+    image = bundle.images["source.png"].copy()
+    draw = ImageDraw.Draw(image)
+    line_width = max(2, image.width // 450)
+    font_size = max(14, image.width // 85)
+    for person_id in sorted(bundle.people, key=lambda value: value == selected):
+        x1, y1, x2, y2 = bundle.people[person_id]["bbox_xyxy"]
+        box = (floor(x1), floor(y1), ceil(x2) - 1, ceil(y2) - 1)
+        color = "#78f9d7" if person_id == selected else "#eed58b"
+        draw.rectangle(box, outline=color, width=line_width)
+        label_width = draw.textlength(person_id, font_size=font_size) + 10
+        label_x = max(0, min(x1, image.width - label_width))
+        label_y = max(0, y1 - font_size - 6)
+        draw.rectangle((label_x, label_y, label_x + label_width, label_y + font_size + 6),
+                       fill=color)
+        draw.text((label_x + 5, label_y + 3), person_id, anchor="lt",
+                  fill="#0b2521", font_size=font_size)
+    return image
+
+
+def source_panel(bundle: Bundle, selected: str | None, *, boxed: bool = True) -> None:
+    with st.container(border=True):
+        st.subheader("Original RGB Image")
+        preview = st.container()
+        show_boxes = st.checkbox("Show detection boxes", value=boxed, disabled=not bundle.people)
+        image = draw_detections(bundle, selected) if show_boxes else bundle.images["source.png"]
+        preview.image(image, width="stretch")
+
+
+def overlay_panel(bundle: Bundle, synthetic: bool) -> None:
+    with st.container(border=True):
+        st.subheader("Synthetic Overlay" if synthetic else "HMR2 Reconstruction")
+        st.image(bundle.images["overlay.png"], width="stretch")
+        if "side_view.png" in bundle.images:
+            with st.expander("Side view"):
+                st.image(bundle.images["side_view.png"], width="stretch")
+
+
+def geometry_panel(arrays: PersonArrays, person_id: str, package_id: str) -> None:
     with st.expander("Open3D geometry and export"):
-        if not st.checkbox("Run geometry analysis", key=f"geometry-{person_id}"):
+        if not st.checkbox("Run geometry analysis", key=f"geometry-{package_id}-{person_id}"):
             return
         try:
             mesh = create_mesh(arrays["vertices"], arrays["faces"])
             st.json(mesh_statistics(mesh))
-            for extension in ("obj", "ply"):
-                st.download_button(extension.upper(), export_mesh(mesh, extension),
-                                   f"{person_id}.{extension}", "application/octet-stream")
+            for column, extension in zip(st.columns(2), ("obj", "ply")):
+                column.download_button(
+                    f"Download {extension.upper()}", export_mesh(mesh, extension),
+                    f"{person_id}.{extension}", "application/octet-stream", on_click="ignore",
+                )
         except (ImportError, OSError, RuntimeError) as exc:
-            st.warning(f"Open3D geometry unavailable: {exc}")
+            st.warning(f"Open3D geometry unavailable. {exc}")
 
 
-def draw_detections(bundle: Bundle) -> Image.Image:
-    image = bundle.images["source.png"].copy()
-    draw = ImageDraw.Draw(image)
-    line_width = max(2, image.width // 450)
-    for person_id, arrays in bundle.people.items():
-        x1, y1, x2, y2 = arrays["bbox_xyxy"]
-        draw.rectangle((x1, y1, x2, y2), outline="#00e5ff", width=line_width)
-        draw.text((x1 + 3, y1 + 3), person_id, fill="white", stroke_width=2, stroke_fill="black",
-                  font_size=max(13, image.width // 65))
-    return image
+def parameters_panel(person_id: str, arrays: PersonArrays, package_id: str, synthetic: bool) -> None:
+    with st.container(border=True):
+        st.subheader("SMPL Parameters")
+        st.caption(f"{person_id} · {'Fixture values' if synthetic else 'Imported values'}")
+        shape, pose, camera = st.tabs(("Shape β", "Pose θ", "Camera & mesh"))
+        with shape:
+            st.caption("Each β is a coefficient of the learned shape basis.")
+            st.dataframe(
+                [{"Coefficient": f"β{i}", "Value": float(value)}
+                 for i, value in enumerate(arrays["betas"])],
+                hide_index=True, height=290, width="stretch",
+            )
+        with pose:
+            st.caption("Pelvis gives the global orientation. The 23 body rotations are parent-relative.")
+            joint = st.selectbox("Rotation matrix", ("Pelvis", *JOINTS), key="pose-joint")
+            rotation = (arrays["global_orient"][0] if joint == "Pelvis"
+                        else arrays["body_pose"][JOINTS.index(joint)])
+            st.dataframe(rotation, hide_index=True, width="stretch")
+        with camera:
+            st.json({
+                "pred_cam [s, tx, ty]": arrays["pred_cam"].tolist(),
+                "pred_cam_t [tx, ty, tz]": arrays["pred_cam_t"].tolist(),
+                "bbox_xyxy [px]": arrays["bbox_xyxy"].tolist(),
+                "vertices": len(arrays["vertices"]),
+                "faces": len(arrays["faces"]),
+            })
+        geometry_panel(arrays, person_id, package_id)
 
 
-def show_parameters(person_id: str, arrays: dict[str, np.ndarray]) -> None:
-    st.subheader(f"SMPL Parameters · {person_id}")
-    st.caption("β coefficients are coordinates in the learned SMPL shape basis.")
-    st.table([{"Coefficient": f"β{i}", "Value": float(beta)}
-              for i, beta in enumerate(arrays["betas"])])
-    st.json({
-        "global_orient": arrays["global_orient"].tolist(),
-        "body_pose (23 joint rotation matrices)": arrays["body_pose"].tolist(),
-        "pred_cam": arrays["pred_cam"].tolist(),
-        "pred_cam_t": arrays["pred_cam_t"].tolist(),
-        "bbox_xyxy": arrays["bbox_xyxy"].tolist(),
-        "vertex_count": len(arrays["vertices"]), "face_count": len(arrays["faces"]),
-    }, expanded=1)
-    geometry_panel(arrays, person_id)
-
-
-@st.cache_data(max_entries=1, show_spinner=False)
-def parse(payload: bytes) -> Bundle:
-    return load_bundle(payload)
+def mesh_panel(bundle: Bundle, person_id: str | None, package_id: str, mode: str) -> None:
+    all_people = mode == "All Detected People"
+    synthetic = bundle.manifest["data_kind"] == "synthetic"
+    with st.container(border=True):
+        st.subheader("Detected People" if all_people else
+                     "3D Fixture Mesh" if synthetic else "3D Human Mesh")
+        if person_id is None:
+            st.info("This package contains no detections.")
+            return
+        st.caption(f"Vertex frame · {bundle.manifest['coordinate_system']}")
+        axes = st.checkbox("Show coordinate axes", value=True)
+        wireframe = (st.checkbox("Wireframe", key="all-wireframe") if all_people
+                     else mode == "Mesh Wireframe")
+        if all_people:
+            st.caption("Each detection uses a separate viewport in its stored coordinate frame.")
+        ids = list(bundle.people) if all_people else [person_id]
+        page_size = 4
+        if len(ids) > page_size:
+            pages = (len(ids) + page_size - 1) // page_size
+            page = st.selectbox("Mesh page", range(1, pages + 1), key=f"pages-{package_id}")
+            ids = ids[(page - 1) * page_size:page * page_size]
+        for index in range(0, len(ids), 2):
+            row = ids[index:index + 2]
+            columns = st.columns(2) if len(row) == 2 else [st.container()]
+            for column, current in zip(columns, row):
+                column.plotly_chart(
+                    mesh_figure(current, bundle.people[current], wireframe, axes, package_id),
+                    key=f"mesh-{package_id}-{current}", width="stretch", theme=None,
+                    config=PLOTLY_CONFIG,
+                )
 
 
 def main() -> None:
-    st.set_page_config(page_title="SMPL Reconstruction Lab", layout="wide")
+    st.set_page_config(page_title="SMPL Reconstruction Lab", page_icon="🧊", layout="wide")
     st.title("SMPL Reconstruction Lab")
+    st.caption("Inspect RGB observations, SMPL parameters, and mesh geometry.")
+
     with st.sidebar:
-        upload = st.file_uploader("Reconstruction ZIP", type=["zip"])
+        st.header("Workspace")
+        upload = st.file_uploader("Reconstruction ZIP", type=["zip"],
+                                  help="One scene, frame, and camera. Up to 64 MiB.")
         demo = st.checkbox("Use synthetic fixture", value=True, disabled=upload is not None)
         if upload is None and not demo:
             st.info("Upload a reconstruction ZIP to begin.")
             return
         try:
             with st.spinner("Validating reconstruction archive"):
-                bundle = parse(upload.getvalue() if upload is not None else fixture_bytes())
+                package_id, bundle = load_for_session(
+                    upload.getvalue() if upload is not None else demo_package()
+                )
         except BundleError as exc:
             st.error(str(exc))
             return
         metadata = bundle.manifest
-        for key, label in (("scene_id", "Scene"), ("frame_id", "Frame"), ("camera_id", "Camera")):
-            st.selectbox(label, [metadata[key]])
-        person_id = st.selectbox("Person", list(bundle.people), placeholder="No detections")
-        st.success(f"Validation passed · {len(bundle.people)} people")
-        st.subheader("Reconstruction metadata")
-        st.json({k: v for k, v in metadata.items() if k != "people"}, expanded=False)
+        st.divider()
+        st.subheader("Observation")
+        st.selectbox("Scene", [metadata["scene_id"]])
+        st.selectbox("Frame", [metadata["frame_id"]])
+        st.selectbox("Camera", [metadata["camera_id"]])
+        person_id = st.selectbox("Person", list(bundle.people), placeholder="No detections",
+                                 key=f"person-{package_id}")
+        st.success(f"Archive validated · {len(bundle.people)} detections")
+        with st.expander("Reconstruction metadata"):
+            st.json(metadata, expanded=1)
 
-    if metadata["data_kind"] == "synthetic":
+    synthetic = metadata["data_kind"] == "synthetic"
+    if synthetic:
         st.warning(SYNTHETIC_LABEL)
     else:
-        st.caption(f"Imported inference · {metadata['model_name']} · {metadata['checkpoint_identifier']}")
+        st.text(f"Imported inference · {metadata['model_name']} · {metadata['checkpoint_identifier']}")
 
-    mode = st.radio("Visualization", ["Original RGB", "RGB + Reconstruction Overlay", "3D Human Mesh",
-                                      "Mesh Wireframe", "All Detected People"],
-                    index=1, horizontal=True)
-    if mode in {"Original RGB", "RGB + Reconstruction Overlay"}:
-        left, right = st.columns(2) if mode.startswith("RGB +") else (st.container(), None)
+    mode = st.radio("Visualization", MODES, index=1, horizontal=True)
+    if mode == "Original RGB":
+        source_panel(bundle, person_id, boxed=False)
+    elif mode == "RGB + Reconstruction Overlay":
+        left, right = st.columns(2)
         with left:
-            st.subheader("Original RGB Image")
-            boxes = st.checkbox("Show detection boxes", value=True)
-            st.image(draw_detections(bundle) if boxes else bundle.images["source.png"], width="stretch")
-        if right:
-            with right:
-                st.subheader("HMR2 Reconstruction" if metadata["data_kind"] == "real_inference"
-                             else "Synthetic Overlay")
-                st.image(bundle.images["overlay.png"], width="stretch")
-                if "side_view.png" in bundle.images:
-                    with st.expander("Side view"):
-                        st.image(bundle.images["side_view.png"], width="stretch")
+            source_panel(bundle, person_id)
+        with right:
+            overlay_panel(bundle, synthetic)
+    if mode == "All Detected People":
+        mesh_panel(bundle, person_id, package_id, mode)
+    if mode in ("RGB + Reconstruction Overlay", "3D Human Mesh", "Mesh Wireframe"):
+        if person_id is None:
+            mesh_panel(bundle, person_id, package_id, mode)
+        else:
+            mesh_column, parameters_column = st.columns([3, 2])
+            with mesh_column:
+                mesh_panel(bundle, person_id, package_id, mode)
+            with parameters_column:
+                parameters_panel(person_id, bundle.people[person_id], package_id, synthetic)
     elif person_id is not None:
-        st.subheader("3D Human Mesh" if metadata["data_kind"] == "real_inference" else "3D Fixture Mesh")
-        axes = st.checkbox("Show coordinate axes", value=True)
-        all_people = mode == "All Detected People"
-        wireframe = st.checkbox("Wireframe") if all_people else mode == "Mesh Wireframe"
-        st.caption(f"Vertex frame · {metadata['coordinate_system']}")
-        if all_people:
-            st.caption("Each detection has an independent viewport in its stored coordinate frame.")
-        ids = list(bundle.people) if all_people else [person_id]
-        page_size = 6
-        if len(ids) > page_size:
-            pages = (len(ids) + page_size - 1) // page_size
-            page = st.selectbox("Mesh page", range(1, pages + 1))
-            ids = ids[(page - 1) * page_size:page * page_size]
-        for index in range(0, len(ids), 2):
-            row = ids[index:index + 2]
-            for column, current in zip(st.columns(len(row)), row):
-                view_key = "/".join(str(metadata[k]) for k in ("scene_id", "frame_id", "camera_id"))
-                column.plotly_chart(mesh_figure(current, bundle.people[current], wireframe, axes, view_key),
-                                    key=f"mesh-{current}", width="stretch",
-                                    config={"scrollZoom": True, "displayModeBar": True,
-                                            "displaylogo": False})
-    else:
-        st.info("This package contains no detections.")
-    if person_id is not None:
-        show_parameters(person_id, bundle.people[person_id])
+        parameters_panel(person_id, bundle.people[person_id], package_id, synthetic)
 
 
 if __name__ == "__main__":

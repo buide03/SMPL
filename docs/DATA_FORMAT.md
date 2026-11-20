@@ -4,7 +4,7 @@ One ZIP represents one scene, one frame, and one RGB camera. Place these files a
 
 | Path | Content |
 | --- | --- |
-| manifest.json | UTF-8 JSON metadata |
+| manifest.json | UTF-8 JSON metadata with unique keys and finite numeric values |
 | source.png | Source RGB image |
 | overlay.png | Full-frame reconstruction overlay with the dimensions of source.png |
 | side_view.png | Optional side-view render with independent dimensions |
@@ -18,13 +18,13 @@ One ZIP represents one scene, one frame, and one RGB camera. Place these files a
 | camera_id | Nonempty source camera identifier |
 | model_name | Inference model name |
 | checkpoint_identifier | Reproducible checkpoint reference, ideally a digest |
-| image_width, image_height | Positive integer source image dimensions in pixels |
+| image_width, image_height | Positive integer source image dimensions in pixels, up to 8192 per axis and 12 million total pixels |
 | coordinate_system | `smpl_local`, `hmr2_crop_camera` or `synthetic`, per the [coordinate contract](COORDINATE_SYSTEMS.md) |
 | smpl_model_version | SMPL asset version or immutable identifier. Use `none` for synthetic geometry |
-| data_kind | `real_inference` or `synthetic`. This provenance field is supplied by the exporter |
+| data_kind | `real_inference` or `synthetic`. The exporter supplies this provenance declaration |
 | people | Zero to 64 records containing unique `person_id` and `npz_path` strings |
 
-Person IDs use ASCII letters, digits, underscores, and hyphens (1–64 chars). NPZ paths use those characters for the basename under `people/`.
+Person IDs use ASCII letters, digits, underscores, and hyphens (1–64 chars). NPZ paths use those characters for the basename under `people/`. Additional metadata can record exporter or dependency versions. The manifest declares provenance and coordinate conventions. Archive validation checks the data contract. Confirming inference provenance requires access to the export process.
 
 | Array | Shape | Meaning |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Person IDs use ASCII letters, digits, underscores, and hyphens (1–64 chars). N
 | body_pose | (23, 3, 3) | Dimensionless parent-relative rotation matrices in SMPL joint order |
 | vertices | (6890, 3) | XYZ positions in meters for SMPL predictions |
 | faces | (13776, 3) | Zero-based triangle vertex indices |
-| pred_cam | (3,) | HMR2 crop weak-perspective parameters in [scale, tx, ty] order, in the model's native convention |
+| pred_cam | (3,) | HMR2 crop weak-perspective parameters in [scale, tx, ty] order. Scale is dimensionless and tx/ty carry through to crop translation in model units |
 | pred_cam_t | (3,) | HMR2 perspective crop translation [tx, ty, tz] in model units (meters) |
 | bbox_xyxy | (4,) | Source-image box [left, top, right, bottom] in pixels, with top-left origin. Clip to image bounds before export |
 
@@ -41,4 +41,4 @@ All numeric arrays use finite floating-point values with element widths up to 64
 
 Synthetic data uses arbitrary geometry units, with 1–6890 vertices and 1–13776 faces. Rotation and camera values in the fixture are placeholders.
 
-ZIP limits are 64 MiB upload, 96 MiB declared outer expansion, 72 outer entries, 64 KiB manifest, 12 million pixels per PNG, and 2 MiB per NPZ for both the stored file and nested expansion. Only stored and deflated entries are supported. The loader rejects unsafe paths, case-insensitive collisions, encryption, symlinks and expansion ratios above 2000:1. It checks nested NPY headers (v1 or v2) and loads with pickle disabled.
+ZIP limits are 64 MiB upload, 96 MiB declared outer expansion, 72 outer entries, 64 KiB manifest, 12 million pixels per PNG, and 2 MiB per NPZ for both the archived file and nested expansion. Supported compression methods are stored and deflated. The loader rejects unsafe paths, case-insensitive collisions, Windows device names, links, encrypted entries, and expansion ratios above 2000:1. It checks NPY headers (v1 or v2) for the expected dtype, shape, and data length before loading the required arrays with pickle disabled.

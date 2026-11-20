@@ -1,2 +1,26 @@
 [server]
 maxUploadSize = 64
+address = "localhost"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"
+
+[theme]
+base = "light"
+primaryColor = "#08765e"
+backgroundColor = "#f2f7f6"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#122e29"
+borderColor = "#cbded8"
+baseRadius = "0.5rem"
+font = "sans-serif"
+
+[theme.sidebar]
+primaryColor = "#79e5c5"
+backgroundColor = "#142e2a"
+secondaryBackgroundColor = "#203e38"
+textColor = "#effaf6"
+borderColor = "#3e6057"

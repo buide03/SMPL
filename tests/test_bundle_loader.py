@@ -33,9 +33,12 @@ def test_load_two_people():
     ({"manifest.json": None}, "Missing required file"),
     ({"../escape.png": b"x"}, "Unsafe"),
     ({"C:/escape.png": b"x"}, "Unsafe"),
+    ({"people/COM1.npz": b"x"}, "Unsafe"),
+    ({"people": b"x"}, "file as its parent"),
+    ({"source.png/": b""}, "duplicate"),
     ({"SOURCE.PNG": b"x"}, "duplicate"),
     ({"people/person_000.npz": None}, "missing or oversized NPZ"),
-    ({"people/person_000.npz": b"invalid"}, "Invalid reconstruction archive"),
+    ({"people/person_000.npz": b"invalid"}, "person_000"),
     ({"source.png": b"invalid"}, "Invalid reconstruction archive"),
 ])
 def test_invalid_archive(changes, message):
@@ -63,11 +66,31 @@ def test_optional_side_view():
     assert "side_view.png" not in load_bundle(repack({"side_view.png": None})).images
 
 
-def test_real_schema_and_coordinate_frame():
+@pytest.mark.parametrize("manifest_fragment", [b'"note":NaN,', b'"note":1e999,',
+                                                b'"note":"\\ud800",', b'"frame_id":"collision",'])
+def test_ambiguous_or_unrenderable_metadata(manifest_fragment):
+    manifest = load_bundle(fixture_bytes()).manifest
+    raw_manifest = b"{" + manifest_fragment + json.dumps(manifest).encode()[1:]
+    with pytest.raises(BundleError):
+        load_bundle(repack({"manifest.json": raw_manifest}))
+
+
+def test_empty_detection_list():
+    manifest = load_bundle(fixture_bytes()).manifest
+    manifest["people"] = []
+    archive = repack({"manifest.json": json.dumps(manifest).encode(),
+                      "people/person_000.npz": None, "people/person_001.npz": None})
+    assert load_bundle(archive).people == {}
+
+
+def test_standard_smpl_shape_contract_and_coordinate_frame():
     bundle = load_bundle(fixture_bytes())
     manifest = bundle.manifest
     manifest.update(data_kind="real_inference", coordinate_system="smpl_local",
                     smpl_model_version="test-only", people=manifest["people"][:1])
+    # Exercise array dimensions with test values only.
+    with pytest.raises(BundleError, match="vertices.*shape"):
+        load_bundle(repack({"manifest.json": json.dumps(manifest).encode()}))
     arrays = bundle.people["person_000"]
     arrays["vertices"] = np.resize(arrays["vertices"], (6890, 3))
     arrays["faces"] = np.resize(arrays["faces"], (13776, 3))
