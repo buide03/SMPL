@@ -1,0 +1,17 @@
+# Python 3.12. Reuse the matched CUDA torch/torchvision pair from Colab.
+numpy==1.26.4
+scipy>=1.11,<1.17
+opencv-python>=4.8,<4.12
+Pillow>=11,<13
+pytorch-lightning>=2.4,<2.7
+smplx==0.1.28
+pyrender==0.1.45
+trimesh>=4,<5
+yacs>=0.1.8,<0.2
+scikit-image>=0.24,<1
+einops>=0.8,<1
+timm>=1,<2
+webdataset>=0.2.86,<2
+dill>=0.3.8,<1
+gdown>=5,<6
+pandas>=2,<3

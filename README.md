@@ -1,6 +1,6 @@
 # SMPL Reconstruction Lab
 
-Phase 1 is a local Windows CPU application for inspecting one scene, frame, and camera per reconstruction ZIP. Streamlit presents the source RGB, detection boxes, imported overlay, optional side view, and per-person SMPL parameters. Plotly renders the mesh in its stored vertex frame. Optional Open3D utilities inspect geometry and export OBJ or PLY. The [architecture](docs/ARCHITECTURE.md) describes how a later GPU exporter can feed the same viewer.
+The Windows CPU viewer inspects one scene, frame, and camera per reconstruction ZIP. Streamlit presents source RGB, detection boxes, overlay, side view, and per-person SMPL parameters. Plotly renders the mesh in its stored vertex frame. Optional Open3D utilities inspect geometry and export OBJ or PLY. Phase 2 adds a Colab GPU workflow that runs pretrained HMR2 on a PandaSet image and exports a ZIP for this viewer.
 
 ## Run on Windows
 
@@ -20,7 +20,16 @@ Open the local URL printed by Streamlit. The built-in fixture displays two synth
 .\.venv\Scripts\python.exe -m src.synthetic_fixture
 ```
 
-For an external prediction, choose **Reconstruction ZIP** and follow the [ZIP contract](docs/DATA_FORMAT.md). Pick a detection in the sidebar. The default view presents the source, overlay, selected mesh and parameter panels. In **Pose θ**, choose the pelvis or one of the 23 named body joints to read its matrix. **All Detected People** shows separate viewports, with four per page for larger packages. Drag to orbit, scroll over the graph to zoom, and use the mode bar to pan or reset.
+For an exported prediction, choose **Reconstruction ZIP** and follow the [ZIP contract](docs/DATA_FORMAT.md). Pick a detection in the sidebar. The default view presents the source, overlay, selected mesh and parameter panels. In **Pose θ**, choose the pelvis or one of the 23 named body joints to read its matrix. **All Detected People** shows separate viewports, with four per page for larger packages. Drag to orbit, scroll over the graph to zoom, and use the mode bar to pan or reset.
+
+## Run HMR2 in Colab
+
+1. Open the [Phase 2 notebook in Colab](https://colab.research.google.com/github/buide03/SMPL/blob/main/colab/hmr2_inference.ipynb). In **Runtime → Change runtime type**, select a GPU and runtime version **2026.07 (Python 3.12)**. The notebook reuses Colab's matched CUDA builds of PyTorch and TorchVision. [Colab runtime versions](https://research.google.com/colaboratory/runtime-version-faq.html)
+2. Run the first cell and authorize the Drive mount. The default paths select `006_front_camera_03.jpg` with IDs `006`, `03`, and `front_camera`. Set the paths and IDs in that cell when using another image. Supply the SMPLify neutral model you obtained through the official download process as `basicModel_neutral_lbs_10_207_0_v1.0.0.pkl`. A single RGB image is sufficient. [4D-Humans setup](https://github.com/shubham-goel/4D-Humans#installation-and-setup)
+3. Run the setup, inference, and preview cells in order. The first run downloads the official 2.71 GB HMR2.0b archive. The default score threshold is `0.50` and the run requires at least two detections. The notebook displays the overlay and side views, then syncs a validated `reconstruction.zip` to a unique folder under `reconstruction-results` in Drive.
+4. Download `reconstruction.zip` and import it in Streamlit. Check the selected scene, frame, and camera, then inspect the overlay and meshes for at least two detections.
+
+The detector is TorchVision Faster R-CNN ResNet-50 FPN v2 with COCO weights. Crop preprocessing, HMR2 forward, camera conversion, and rendering use the official 4D-Humans code. Colab records the checkpoint and asset SHA-256 digests, the upstream revision, the detector weights, and installed inference versions in the ZIP manifest. [TorchVision detector](https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.detection.fasterrcnn_resnet50_fpn_v2.html) · [4D-Humans demo](https://github.com/shubham-goel/4D-Humans/blob/main/demo.py)
 
 ## Geometry and tests
 
@@ -41,7 +50,8 @@ In the app, expand **Open3D geometry and export** and enable analysis for the se
 - If ZIP validation fails, check the sidebar message and the ZIP contract. Place `manifest.json` directly at the archive root.
 - For a port conflict, append `--server.port 8502` to the Streamlit command.
 - If a 3D viewport is blank, enable browser hardware acceleration or use another WebGL-capable browser.
-
-The fixture verifies local behavior with synthetic geometry. Testing on a real PandaSet frame requires a Phase 2 HMR2 exporter and an authorized SMPL neutral model.
+- If Colab reports that CUDA is unavailable, select a GPU runtime and rerun from the first cell.
+- If the detector returns fewer than two people, check the source frame and try a prepared alternate. You can adjust `--threshold` in Colab's inference cell.
+- If the upstream archive download stops, rerun the inference cell in the same Colab runtime to resume it. If an unexpected archive size is reported, clear the incomplete checkpoint archive in the Colab cache before retrying.
 
 [Architecture](docs/ARCHITECTURE.md) · [SMPL concepts](docs/SMPL_CONCEPTS.md) · [Coordinate systems](docs/COORDINATE_SYSTEMS.md)

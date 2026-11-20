@@ -26,6 +26,8 @@ One ZIP represents one scene, one frame, and one RGB camera. Place these files a
 
 Person IDs use ASCII letters, digits, underscores, and hyphens (1–64 chars). NPZ paths use those characters for the basename under `people/`. Additional metadata can record exporter or dependency versions. The manifest declares provenance and coordinate conventions. Archive validation checks the data contract. Confirming inference provenance requires access to the export process.
 
+The Phase 2 exporter saves the checkpoint archive URL, 4D-Humans and chumpy revisions, runtime dependency versions, detector identity and threshold, source image name and SHA-256, and the model-implied full-image focal length in pixels. Each person record includes the detector score and `full_frame_cam_t` in meters, which is used to place that person's mesh in the composite. The side-view image follows the order of the person records from left to right and top to bottom. The record order uses descending detector score.
+
 | Array | Shape | Meaning |
 | --- | --- | --- |
 | betas | (10,) | Dimensionless SMPL shape coefficients |
