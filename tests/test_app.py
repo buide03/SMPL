@@ -1,6 +1,9 @@
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZipFile
 
 import numpy as np
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from app import draw_detections
@@ -45,3 +48,28 @@ def test_subpixel_box_at_image_boundary():
     bundle.people["person_000"]["bbox_xyxy"] = np.array([639.5, 359.5, 640., 360.])
     labeled = draw_detections(bundle, "person_000")
     assert labeled.getpixel((639, 359)) == (120, 249, 215)
+
+
+@pytest.mark.parametrize("dtype", [">f2", ">f4", ">f8"])
+def test_uploaded_big_endian_pose_is_displayed(dtype):
+    fixture = fixture_bytes()
+    arrays = load_bundle(fixture).people["person_000"]
+    root = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=dtype)
+    arrays["global_orient"] = root[None]
+    arrays["body_pose"] = np.repeat(root.T[None], 23, axis=0).astype(dtype)
+    person_data = BytesIO()
+    np.savez(person_data, **arrays)
+    archive = BytesIO()
+    with ZipFile(BytesIO(fixture)) as source, ZipFile(archive, "w") as output:
+        for name in source.namelist():
+            payload = person_data.getvalue() if name == "people/person_000.npz" else source.read(name)
+            output.writestr(name, payload)
+
+    app = AppTest.from_file(str(APP_PATH)).run()
+    app.get("file_uploader")[0].upload("big-endian.zip", archive.getvalue()).run()
+    assert not app.exception
+    assert app.success
+    np.testing.assert_array_equal(app.dataframe[1].value, root)
+    app.selectbox(key="pose-joint").select("Left knee").run()
+    assert not app.exception
+    np.testing.assert_array_equal(app.dataframe[1].value, root.T)

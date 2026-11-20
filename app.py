@@ -118,7 +118,8 @@ def parameters_panel(person_id: str, arrays: PersonArrays, package_id: str, synt
             joint = st.selectbox("Rotation matrix", ("Pelvis", *JOINTS), key="pose-joint")
             rotation = (arrays["global_orient"][0] if joint == "Pelvis"
                         else arrays["body_pose"][JOINTS.index(joint)])
-            st.dataframe(rotation, hide_index=True, width="stretch")
+            # Arrow requires native byte order. A float64 view or copy preserves every input value.
+            st.dataframe(rotation.astype(float, copy=False), hide_index=True, width="stretch")
         with camera:
             st.json({
                 "pred_cam [s, tx, ty]": arrays["pred_cam"].tolist(),
