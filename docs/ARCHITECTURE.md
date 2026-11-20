@@ -1,0 +1,9 @@
+# Architecture
+
+The Streamlit entry point loads a ZIP into memory. The bundle loader checks archive limits, provenance metadata, image sizes and numeric arrays. Plotly renders those arrays directly. An optional Open3D module computes normals, bounds and topology statistics and serializes meshes independently of Plotly.
+
+A future Colab exporter will run person detection and HMR2 and write the ZIP contract. The official demo calls `download_models` and `load_hmr2`, runs HMR2 over detection crops, then uses both crop camera translation and a derived full-image translation for rendering. The pretrained loader resolves its configuration and expects a neutral SMPL asset. Local SMPL Forward and parameter editing are reserved for Phase 3 and require an authorized SMPL model file. See [official demo](https://github.com/shubham-goel/4D-Humans/blob/main/demo.py), [checkpoint loader](https://github.com/shubham-goel/4D-Humans/blob/main/hmr2/models/__init__.py), and [SMPL-X implementation](https://github.com/vchoutas/smplx).
+
+The scene/frame/camera tuple identifies the source observation. Person IDs are scoped to that observation. A future actor association layer can group observation IDs while retaining individual predictions and their provenance. OmniRe processes annotated pedestrian observations across camera views and frames for a downstream driving-scene pipeline. This MVP reads prepackaged single-camera observations. Phase 4 proposes single-frame matching using projected cuboids and image boxes, followed by representative-view selection. See [OmniRe Human Pose](https://github.com/ziyc/drivestudio/blob/main/docs/HumanPose.md), [OmniRe PandaSet preparation](https://github.com/ziyc/drivestudio/blob/main/docs/Pandaset.md), and [PandaSet devkit](https://github.com/scaleapi/pandaset-devkit).
+
+See [Open3D TriangleMesh](https://www.open3d.org/docs/release/python_api/open3d.geometry.TriangleMesh.html) for topology checks and geometry methods.

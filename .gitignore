@@ -1,0 +1,12 @@
+.venv*/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.pkl
+*.pt
+*.pth
+*.ckpt
+*.zip
+data/input/
+data/results/
+!data/fixtures/synthetic.zip
