@@ -2,16 +2,19 @@
 
 from hashlib import sha256
 from math import ceil, floor
+import os
+from pathlib import Path
 
 import pandas as pd
 from PIL import Image, ImageDraw
 import streamlit as st
 
-from src.bundle_loader import Bundle, BundleError, SYNTHETIC_LABEL, load_bundle
+from src.bundle_loader import Bundle, BundleError, MAX_UPLOAD, SYNTHETIC_LABEL, load_bundle
 from src.mesh_geometry import create_mesh, export_mesh, mesh_statistics
 from src.mesh_viewer import PLOTLY_CONFIG, mesh_figure
 from src.pose_utils import JOINTS
 from src.smpl_editor import smpl_editor
+from src.smpl_lesson import LESSON_MODE, smpl_lesson
 from src.synthetic_fixture import fixture_bytes
 from src.validation import PersonArrays
 
@@ -22,12 +25,19 @@ MODES = (
     "Mesh Wireframe",
     "All Detected People",
     "SMPL Explorer",
+    LESSON_MODE,
 )
 
 
 @st.cache_data(max_entries=1, show_spinner=False)
 def demo_package() -> bytes:
     return fixture_bytes()
+
+
+@st.cache_data(max_entries=1, show_spinner=False)
+def local_example(path: Path, revision: tuple[int, int]) -> bytes:
+    with path.open("rb") as archive:
+        return archive.read(MAX_UPLOAD + 1)
 
 
 def load_for_session(payload: bytes) -> tuple[str, Bundle]:
@@ -37,6 +47,7 @@ def load_for_session(payload: bytes) -> tuple[str, Bundle]:
         st.session_state.pop("package_id", None)
         st.session_state.pop("bundle", None)
         st.session_state.pop("smpl_editor_sessions", None)
+        st.session_state.pop("smpl_lesson_baseline", None)
         st.session_state["bundle"] = load_bundle(payload)
         st.session_state["package_id"] = package_id
     return package_id, st.session_state["bundle"]
@@ -168,16 +179,25 @@ def main() -> None:
         st.header("Workspace")
         upload = st.file_uploader("Reconstruction ZIP", type=["zip"],
                                   help="One scene, frame, and camera. Up to 64 MiB.")
-        demo = st.checkbox("Use synthetic fixture", value=True, disabled=upload is not None)
+        example_path = os.environ.get("SMPL_DEMO_ZIP")
+        demo = st.checkbox("Dùng ví dụ PandaSet" if example_path else "Use synthetic fixture",
+                           value=True, disabled=upload is not None)
         if upload is None and not demo:
             st.info("Upload a reconstruction ZIP to begin.")
             return
+        local_demo = upload is None and bool(example_path)
         try:
             with st.spinner("Validating reconstruction archive"):
-                package_id, bundle = load_for_session(
-                    upload.getvalue() if upload is not None else demo_package()
-                )
-        except BundleError as exc:
+                if upload is not None:
+                    payload = upload.getvalue()
+                elif example_path:
+                    path = Path(example_path).expanduser()
+                    info = path.stat()
+                    payload = local_example(path, (info.st_mtime_ns, info.st_size))
+                else:
+                    payload = demo_package()
+                package_id, bundle = load_for_session(payload)
+        except (BundleError, OSError) as exc:
             st.error(str(exc))
             return
         metadata = bundle.manifest
@@ -186,7 +206,10 @@ def main() -> None:
         st.selectbox("Scene", [metadata["scene_id"]])
         st.selectbox("Frame", [metadata["frame_id"]])
         st.selectbox("Camera", [metadata["camera_id"]])
-        person_id = st.selectbox("Person", list(bundle.people), placeholder="No detections",
+        people = list(bundle.people)
+        preferred = os.environ.get("SMPL_DEMO_PERSON") if local_demo else None
+        initial_person = people.index(preferred) if preferred in people else 0
+        person_id = st.selectbox("Person", people, index=initial_person, placeholder="No detections",
                                  key=f"person-{package_id}")
         st.success(f"Archive validated · {len(bundle.people)} detections")
         with st.expander("Reconstruction metadata"):
@@ -195,10 +218,13 @@ def main() -> None:
     synthetic = metadata["data_kind"] == "synthetic"
     if synthetic:
         st.warning(SYNTHETIC_LABEL)
-    else:
-        st.text(f"Imported inference · {metadata['model_name']} · {metadata['checkpoint_identifier']}")
 
-    mode = st.radio("Visualization", MODES, index=1, horizontal=True)
+    mode = st.radio("Visualization", MODES, index=MODES.index(LESSON_MODE) if local_demo else 1, horizontal=True)
+    if mode == LESSON_MODE:
+        smpl_lesson(bundle, person_id, package_id)
+        return
+    if not synthetic:
+        st.text(f"Imported inference · {metadata['model_name']} · {metadata['checkpoint_identifier']}")
     if mode == "SMPL Explorer":
         smpl_editor(bundle, person_id, package_id)
         return

@@ -70,25 +70,28 @@ def comparison_figure(
     *,
     show_original: bool,
     posed_y_up: bool = False,
+    canonical_y_up: bool = True,
+    titles: tuple[str, str] = ("Canonical Mesh", "Posed Mesh"),
 ) -> go.Figure:
     """Use shared axis scales while keeping the canonical and posed vertices in native frames."""
     figure = make_subplots(rows=1, cols=2, specs=[[{"type": "scene"}, {"type": "scene"}]],
-                           subplot_titles=("Canonical Mesh", "Posed Mesh"), horizontal_spacing=0.05)
+                           subplot_titles=titles, horizontal_spacing=0.05)
     figure.add_trace(solid_mesh(canonical, faces, showlegend=False), row=1, col=1)
     figure.add_trace(solid_mesh(posed, faces, name="Current", showlegend=True), row=1, col=2)
     if show_original:
         figure.add_trace(solid_mesh(imported, faces, color="#6f7598", name="HMR2 prediction",
                                     showlegend=True, opacity=0.28), row=1, col=2)
     # Align the two range calculations in the posed display convention. Vertices are unchanged.
-    camera_frames_differ = not posed_y_up
+    camera_frames_differ = canonical_y_up != posed_y_up
     display_canonical = canonical * [1, -1, -1] if camera_frames_differ else canonical
     displayed = (display_canonical, posed, imported) if show_original else (display_canonical, posed)
     ranges = np.concatenate(displayed)
     lower, upper = ranges.min(axis=0), ranges.max(axis=0)
     margin = max(float(np.max(upper - lower)) * 0.06, 0.02)
     display_ranges = np.column_stack((lower - margin, upper + margin))
+    canonical_camera = CANONICAL_CAMERA if canonical_y_up else POSED_CAMERA
     posed_camera = CANONICAL_CAMERA if posed_y_up else POSED_CAMERA
-    for scene, camera, canonical_view in ((figure.layout.scene, CANONICAL_CAMERA, True),
+    for scene, camera, canonical_view in ((figure.layout.scene, canonical_camera, True),
                                           (figure.layout.scene2, posed_camera, False)):
         scene.update(aspectmode="data", dragmode="orbit", camera=camera, **scene_axes(True))
         for index, axis in enumerate("xyz"):
@@ -111,5 +114,5 @@ def linked_comparison_html(figure: go.Figure, view_key: str) -> str:
     sign = "-1" if figure.layout.meta["camera_frames_differ"] else "1"
     script = script.replace("{linked_yz_sign}", sign)
     chart = figure.to_html(full_html=False, include_plotlyjs=True, config=PLOTLY_CONFIG,
-                           div_id=f"smpl-editor-{view_key}", post_script=script)
+                           div_id=f"smpl-editor-{view_key}", post_script=script, auto_play=False)
     return "<style>body { margin: 0; background: #f2f7f6; }</style>" + chart

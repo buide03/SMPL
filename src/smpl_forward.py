@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.validation import PersonArrays, SHAPES, validate_array_spec
+from src.pose_utils import JOINTS
 
 
 if TYPE_CHECKING:
@@ -37,6 +38,12 @@ class NeutralSMPL:
 class MeshAgreement:
     rms_m: float
     max_m: float
+
+
+@dataclass(frozen=True)
+class SMPLGeometry:
+    vertices: np.ndarray
+    joints: np.ndarray
 
 
 def load_neutral_smpl(path: Path) -> NeutralSMPL:
@@ -74,20 +81,40 @@ def smpl_forward(
     model: NeutralSMPL,
 ) -> np.ndarray:
     """Generate posed local XYZ in meters from beta coefficients and rotation matrices."""
+    return smpl_geometry(betas, body_pose[None], global_orient[None], model=model).vertices[0]
+
+
+def smpl_geometry(
+    betas: np.ndarray,
+    body_pose: np.ndarray,
+    global_orient: np.ndarray,
+    *,
+    model: NeutralSMPL,
+) -> SMPLGeometry:
+    """Evaluate a batch of poses with one shape, returning vertices and 24 kinematic joints per pose."""
     import torch
 
+    count = len(body_pose)
+    if not count or count != len(global_orient):
+        raise ValueError("SMPL geometry requires the same nonzero number of body and root rotations.")
     inputs = {"betas": betas, "body_pose": body_pose, "global_orient": global_orient}
     for name, values in inputs.items():
-        validate_array_spec(name, values.shape, values.dtype, synthetic=False)
+        shape = values.shape if name == "betas" else values.shape[1:]
+        validate_array_spec(name, shape, values.dtype, synthetic=False)
         if not np.isfinite(values).all():
             raise ValueError(f"{name}: non-finite values")
-    tensors = {name: torch.tensor(np.asarray(value[None], dtype=np.float32), device="cpu")
+    tensors = {name: torch.tensor(np.asarray(value, dtype=np.float32), device="cpu")
                for name, value in inputs.items()}
+    tensors["betas"] = tensors["betas"].expand(count, -1)
     with torch.inference_mode():
-        vertices = model.layer(**tensors, pose2rot=False, return_verts=True).vertices[0].numpy().copy()
-    if vertices.shape != SHAPES["vertices"] or not np.isfinite(vertices).all():
-        raise SMPLModelError("SMPL Forward returned invalid vertices.")
-    return vertices
+        result = model.layer(**tensors, pose2rot=False, return_verts=True)
+        vertices = result.vertices.numpy().copy()
+        # SMPLLayer appends extra surface landmarks after the kinematic joints.
+        joints = result.joints[:, :len(JOINTS)].numpy().copy()
+    if (vertices.shape != (count, *SHAPES["vertices"]) or joints.shape != (count, len(JOINTS), 3)
+            or not np.isfinite(vertices).all() or not np.isfinite(joints).all()):
+        raise SMPLModelError("SMPL Forward returned invalid geometry.")
+    return SMPLGeometry(vertices, joints)
 
 
 def imported_local_vertices(arrays: PersonArrays, coordinate_system: str) -> np.ndarray:

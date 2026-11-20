@@ -47,6 +47,17 @@ Import the real HMR2 ZIP, select a person, and choose **SMPL Explorer**. Edit β
 
 The editor displays the RMS and maximum vertex distance for the original prediction. Editing is enabled when the model identity and face order match and the maximum distance is at most **0.1 mm**. See [coordinate systems](docs/COORDINATE_SYSTEMS.md) for the comparison conventions.
 
+## Demonstrate SMPL with a real example
+
+Select **Minh họa SMPL** after opening an HMR2 ZIP. **Vị trí khớp** shows the 24 model joints in the rest and predicted poses. **Hình thể β** changes one shape coefficient at a time in the rest pose and colors vertices by their displacement in centimeters. **Chuyển động θ** holds shape fixed and plays a rotation about the selected joint's local axis from the imported pose. The playback is a parameter demonstration from a single image. [SMPL model and paper](https://is.mpg.de/ps/publications/smpl-2015)
+
+To open the lesson directly with a local HMR2 result, set these variables before launching Streamlit in the same PowerShell session as `SMPL_MODEL_PATH`. Choose a person ID present in the archive.
+
+```powershell
+$env:SMPL_DEMO_ZIP = 'D:\reconstruction.zip'
+$env:SMPL_DEMO_PERSON = 'person_002'
+```
+
 ## Geometry and tests
 
 Install the geometry requirements to enable Open3D. Run pytest with the same interpreter that launches Streamlit.

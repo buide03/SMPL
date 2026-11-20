@@ -7,8 +7,9 @@ import pytest
 from src.mesh_viewer import comparison_figure
 from src.pose_utils import JOINTS, neutral_rotations, rotations_to_vectors, vector_to_rotation
 from src.smpl_forward import (
-    SMPLModelError, imported_local_vertices, load_neutral_smpl, smpl_forward,
+    SMPLModelError, imported_local_vertices, load_neutral_smpl, smpl_forward, smpl_geometry,
 )
+from src.smpl_lesson import descendant_joints, rotation_sequence
 
 
 def test_rotation_vector_round_trip_at_half_turn():
@@ -18,6 +19,18 @@ def test_rotation_vector_round_trip_at_half_turn():
     np.testing.assert_allclose(vector_to_rotation(recovered), rotation, atol=1e-12)
     np.testing.assert_allclose(rotation @ rotation.T, np.eye(3), atol=1e-12)
     assert np.linalg.det(rotation) == pytest.approx(1)
+
+
+def test_motion_rotates_in_the_joint_local_frame():
+    pytest.importorskip("scipy")
+    pose = neutral_rotations().astype(float)
+    knee = JOINTS.index("Left knee")
+    pose[knee] = vector_to_rotation(np.array([0.0, 0.0, 90.0]))
+    motion = rotation_sequence(pose, knee, axis=0, angle=50)
+    local_x = np.array([1.0, 0.0, 0.0])
+    np.testing.assert_allclose(motion[0], pose, atol=1e-12)
+    np.testing.assert_allclose(motion[-1, knee] @ local_x, pose[knee] @ local_x, atol=1e-12)
+    assert not np.allclose(motion[-1, knee], pose[knee])
 
 
 def test_crop_camera_reference_is_rebased_once_without_modification():
@@ -70,3 +83,16 @@ def test_licensed_smpl_forward_on_cpu_changes_shape_and_articulates_knee():
     assert np.max(np.linalg.norm((changed_pose - changed_shape)[lower_leg], axis=1)) > 0.03
     assert np.max(np.linalg.norm(changed_pose - changed_shape, axis=1)) > 0.03
     np.testing.assert_array_equal(smpl_forward(beta, rest[1:], rest[:1], model=model), changed_shape)
+
+    parents = model.layer.parents.numpy()
+    descendants = descendant_joints(parents, knee)
+    ankle = JOINTS.index("Left ankle")
+    assert descendants == {ankle, JOINTS.index("Left foot")}
+    sequence = rotation_sequence(rest, knee, axis=0, angle=50)
+    unchanged = [j for j in range(len(JOINTS)) if j != knee]
+    np.testing.assert_array_equal(sequence[:, unchanged], np.repeat(rest[None, unchanged], len(sequence), axis=0))
+    motion = smpl_geometry(beta, sequence[:, 1:], sequence[:, :1], model=model)
+    np.testing.assert_allclose(motion.vertices[0], changed_shape, atol=5e-7)
+    np.testing.assert_allclose(motion.vertices[-1], changed_pose, atol=5e-7)
+    np.testing.assert_allclose(motion.joints[0, knee], motion.joints[-1, knee], atol=5e-7)
+    assert np.linalg.norm(motion.joints[-1, ankle] - motion.joints[0, ankle]) > 0.1
